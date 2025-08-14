@@ -1,3 +1,33 @@
+"""
+Résumé
+------
+Génère une *figure d’aperçu global* (Plotly) du test complet, avec 3 sous‑graphes
+(Température/Heater, Humidité/Humidifier, Recirculation/Intake/Ammoniac). Le script
+demande un fichier CSV et un dossier de sortie puis sauvegarde l’HTML.
+
+Utilisation
+----------
+python plot_Température_Humidité.py
+
+- Indiquez le CSV et le dossier de sauvegarde quand demandé.
+- La figure est affichée et enregistrée sous `Température_Humidité.html`.
+
+Paramètres clés
+---------------
+- `OVERVIEW_RESAMPLE` : règle de resampling uniforme (p.ex. `30min`).
+- `OVERVIEW_SMOOTH`   : lissage par moyenne glissante centrée (p.ex. `2h`).
+
+Entrées / Prétraitement
+-----------------------
+- Si `Absolute_Time` absent, reconstruit le temps à partir du nom du fichier + `Timestamp` (+1 h).
+- Ajoute `Chamber_T_avg` et `Chamber_RH_avg` si les capteurs top/bottom sont présents.
+- Marque les redémarrages via `annotate_code_updates` (sauts de temps).
+
+Sorties
+-------
+- Figure Plotly interactive affichée et écrite en HTML dans le dossier indiqué.
+"""
+
 from datetime import timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots

@@ -1,3 +1,35 @@
+"""
+Résumé
+------
+Produit une figure Plotly interactive montrant :
+- la *masse perdue* (kg) au cours du temps,
+- le *taux d’évaporation* (kg/h) lissé,
+- la température et l’humidité de la chambre vs. cibles.
+
+Utilisation
+----------
+1) Lancer le script puis saisir :
+   - le chemin complet du CSV de données,
+   - le dossier où sauvegarder la figure HTML.
+2) La figure s’affiche et est enregistrée sous `Évaporation.html`.
+
+Entrées attendues
+-----------------
+- CSV contenant (si possible) `Absolute_Time`; sinon le temps est reconstruit à partir du nom
+  de fichier + `Timestamp` (secondes), avec un décalage de +1 h (horloge Pi).
+- Colonnes utilisées : `Weight`, `Chamber_top_T`, `Chamber_top_RH`, `Target_T`, `Target_RH`, etc.
+
+Traitements clés
+----------------
+- Nettoyage des outliers de `Weight` (IQR).
+- Resampling horaire et lissages (fenêtres basées sur le temps).
+- Calcul de `Lost_Weight`, `Smoothed_Loss`, `Smoothed_Rate` et affichage de la moyenne du taux.
+
+Sorties
+-------
+- Figure interactive (affichée) et sauvegardée en HTML dans le dossier choisi.
+"""
+
 from datetime import timedelta
 import os
 import pandas as pd

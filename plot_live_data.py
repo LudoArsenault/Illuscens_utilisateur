@@ -1,3 +1,36 @@
+"""
+Résumé
+------
+Télécharge (ou met en cache) un CSV publié par le Raspberry Pi, reconstruit l’axe temps
+d’après l’horodatage dans le nom du fichier + `Timestamp`, puis génère trois visualisations
+Matplotlib :
+1) Températures (cibles et mesures) + puissance du chauffe‑air (sous‑graphes empilés)
+2) Humidité (cible et mesures) + puissance de l’humidificateur (sous‑graphes empilés)
+3) Stratégie de recirculation (ratios, intake) + ammoniac (axe droit)
+
+Utilisation
+----------
+python plot_live_data.py
+
+- Le script tente d’abord de détecter automatiquement l’URL du dernier CSV.
+- En cas d’échec, il vous demande un nom de fichier à récupérer sur le serveur.
+
+Entrées / Colonnes typiques
+---------------------------
+- `Timestamp` (secondes écoulées), `Target_T`, `Sheath_T`, `Chamber_top_T`, `Chamber_bottom_T`,
+  `Target_RH`, `Sheath_RH`, `Chamber_top_RH`, `Chamber_bottom_RH`, `Heater_Power`, `Humidifier_Power`,
+  `Total_CFM`, `Target_Ratio`, `Recycling_Ratio`, `Intake_Temp`, `Intake_Hum`, `Ammonia`, etc.
+
+Sorties
+-------
+- Fenêtres Matplotlib avec les graphiques décrits (aucun fichier n’est écrit par défaut).
+
+Notes
+-----
+- L’axe droit d’ammoniac utilise `rolling("1h", center=True)` pour lisser.
+- Pour gagner de la place, la légende des deux axes est fusionnée.
+"""
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import re

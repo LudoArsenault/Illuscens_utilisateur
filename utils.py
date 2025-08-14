@@ -1,3 +1,23 @@
+"""
+Résumé
+------
+Fonctions utilitaires communes :
+- Détection de timestamp dans le *nom de fichier* (`extract_datetime_from_filename`).
+- Recherche du *dernier CSV* servi (multi‑IP) et gestion du *cache local*.
+- Aide au *fetch* de CSV et à la sélection manuelle d’un fichier.
+- Annotation des *redémarrages* (sauts temporels) sur des figures Plotly.
+
+Conseils d’usage
+----------------
+- Importer `extract_datetime_from_filename` pour reconstruire une échelle de temps absolue.
+- Utiliser `get_latest_csv_url` et `fetch_csv` pour simplifier la récupération des données.
+- `annotate_code_updates(fig, time_series)` ajoute des traits verticaux aux sauts > 120 s.
+
+Dépendances
+-----------
+- `requests`, `pandas`, `beautifulsoup4` (pour l’analyse du listing HTTP), `plotly` (pour l’annotation).
+"""
+
 import os
 import re
 from urllib.parse import urljoin

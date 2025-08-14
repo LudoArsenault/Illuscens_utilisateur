@@ -1,3 +1,24 @@
+"""
+Résumé
+------
+Teste une liste d’adresses IP d’un serveur HTTP (Raspberry Pi) et ouvre la première
+qui répond dans le navigateur, à la racine (listing des fichiers).
+
+Utilisation
+----------
+python open_http_in_browser.py
+
+Personnalisation
+----------------
+- Modifier la liste `IP_ADDRESSES` si de nouvelles adresses sont possibles.
+- Adapter le chemin ouvert (`f"{ip}/"`) si nécessaire (ex.: sous-dossier).
+
+Sorties
+-------
+- Ouvre le navigateur sur la première IP atteignable.
+- Affiche en console le résultat de chaque tentative.
+"""
+
 import requests
 import webbrowser
 

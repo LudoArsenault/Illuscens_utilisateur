@@ -1,8 +1,41 @@
+"""
+Résumé
+------
+Fusionne automatiquement plusieurs fichiers CSV provenant d’un même test (arrêt/redémarrage)
+en un seul fichier chronologique. Les horodatages réels sont reconstruits à partir du suffixe
+du nom de fichier (ex. `YYYY-M-D_HhMmSs`) et du temps écoulé stocké dans la colonne `Timestamp`.
+
+Utilisation
+----------
+1) Lancer :
+
+   python merge_test_files.py
+
+2) Saisir le dossier contenant les CSV et le *préfixe* commun du test (ex.: `test_larves_7`).
+3) Le script détecte, trie et concatène tous les fichiers correspondants.
+4) Le résultat est sauvegardé dans le même dossier sous `<prefix>_merged.csv`.
+
+Entrées
+-------
+- Dossier contenant les CSV
+- Préfixe de nom de fichier (tous les fichiers doivent commencer par ce préfixe)
+- Colonnes attendues : `Timestamp` (secondes écoulées) + autres colonnes de mesures
+
+Sorties
+-------
+- Fichier CSV fusionné incluant :
+  - `Absolute_Time` (datetime reconstruit)
+  - `Elapsed` et `Elapsed_str` (durée écoulée depuis le début du premier fichier)
+
+Notes
+-----
+- Les fichiers sont triés par la date extraite de leur nom (via `extract_datetime_from_filename`).
+- Les lignes sans `Timestamp` sont ignorées.
+- Assurez‑vous que tous les fichiers appartiennent au même test et au même format.
+"""
+
 # Ce script permet d'unifier les fichiers de données d'un test qui a été arrêté et redémarré, tant qu'ils ont le même nom.
 
-import os
-import re
-import pandas as pd
 from datetime import timedelta
 from utils import *
 
