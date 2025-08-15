@@ -39,15 +39,15 @@ from utils import *
 
 
 # --- Demande à l'utilisateur ---
-chemin_fichier = input("Entrez le chemin complet du fichier CSV de données : ").strip()
+chemin_fichier = input("Entrez le chemin complet du fichier CSV de données : ").strip().strip('"').strip("'")
 while not os.path.isfile(chemin_fichier):
     print("❌ Fichier introuvable. Veuillez réessayer.")
-    chemin_fichier = input("Entrez le chemin complet du fichier CSV de données : ").strip()
+    chemin_fichier = input("Entrez le chemin complet du fichier CSV de données : ").strip().strip('"').strip("'")
 
-dossier_figures = input("Entrez le chemin du dossier où sauvegarder la figure : ").strip()
+dossier_figures = input("Entrez le chemin du dossier où sauvegarder la figure : ").strip().strip('"').strip("'")
 while not os.path.isdir(dossier_figures):
     print("❌ Dossier introuvable. Veuillez réessayer.")
-    dossier_figures = input("Entrez le chemin du dossier où sauvegarder la figure : ").strip()
+    dossier_figures = input("Entrez le chemin du dossier où sauvegarder la figure : ").strip().strip('"').strip("'")
 
 # --- Chargement des données ---
 df = pd.read_csv(chemin_fichier)

@@ -1,83 +1,37 @@
-"""
-Résumé
-------
-Application Dash pour *surveiller en direct* la température et l’humidité de la chambre à partir
-des CSV servis par le Raspberry Pi (plusieurs IP possibles). Le script détecte automatiquement
-le dernier fichier, récupère périodiquement les données et trace deux graphiques (Température & Humidité).
-
-Utilisation
-----------
-1) Installer les dépendances (voir README).
-2) Lancer :
-
-   python monitor_data_live.py
-
-3) Le navigateur s’ouvre sur http://127.0.0.1:8050/.
-4) Optionnel : saisir un nom de fichier précis dans l’UI ou laisser la détection automatique.
-
-Fonctionnalités
----------------
-- Détection du fichier le plus récent (par timestamp dans le nom ou fallback lexicographique).
-- Essai de téléchargement sur plusieurs IP (timeouts courts).
-- Mise en cache locale du CSV (`./cached_data`).
-- Fenêtre d’affichage glissante (par défaut 48 h) et *downsampling* paramétrable.
-- Graphiques interactifs (Plotly) avec conservation du zoom entre rafraîchissements.
-
-Entrées
--------
-- CSV avec colonnes candidates pour le temps : `Timestamp`/`Time`/`Timestamps`.
-- Colonnes tracées si présentes : Température (`Target_T`, `Sheath_T`, `Chamber_top_T`) et
-  Humidité (`Target_RH`, `Sheath_RH`, `Chamber_top_RH`).
-
-Sorties
--------
-- Tableau de bord web local avec 2 graphes.
-- Cache du dernier fichier sous `./cached_data/<nom>.csv`.
-
-Notes
------
-- La colonne `Timestamp` (secondes écoulées) est convertie en datetimes réels à partir de l’heure
-  de départ déduite du nom de fichier.
-- Variables clés : `PLOT_WINDOW`, `RESAMPLE_RULE`, `REFRESH_MS`.
-"""
-
-# monitor_data_live.py
-import os
+# monitor_simple.py
+import re
 import time
 import io
-import re
 import webbrowser
-from urllib.parse import urljoin
 from datetime import datetime
+from urllib.parse import urljoin
 
 import pandas as pd
 import requests
 from dash import Dash, dcc, html, Output, Input, State, no_update
 import plotly.graph_objs as go
 
-# ------------------ CONFIG ------------------
+# ------------------ CONFIG (simple & rapide) ------------------
 SERVER_ROOT_URLS = [
     "http://172.20.202.52:8080",
     "http://172.20.206.103:8080",
     "http://172.20.202.182:8080",
 ]
 
-LOCAL_CACHE_FOLDER = "./cached_data"
-os.makedirs(LOCAL_CACHE_FOLDER, exist_ok=True)
+# Colonnes à tracer
+TEMP_COLS = ["Target_T", "Sheath_T", "Chamber_top_T", "Mobile_T"]
+HUMI_COLS = ["Target_RH", "Sheath_RH", "Chamber_top_RH", "Mobile_RH"]
 
-TEMP_COLS = ["Target_T", "Sheath_T", "Chamber_top_T"]
-HUMI_COLS = ["Target_RH", "Sheath_RH", "Chamber_top_RH"]
-TIMESTAMP_CANDIDATES = ["Timestamp", "Time", "Timestamps"]
-
-REFRESH_MS = 120_000      # 2 minutes
+# Rafraîchissement du graphique
+REFRESH_MS = 60_000  # 1 min
 CONNECT_TIMEOUT = 1.5
 READ_TIMEOUT = 6.0
 
-# Plot window / downsampling
-PLOT_WINDOW = "48H"
-RESAMPLE_RULE = "2min"
+# Fenêtre d’affichage (mettre None pour tout afficher)
+PLOT_WINDOW = "48h"   # ex: "24H", "48H" ou None
 
-# ------------------ FILENAME / START-TIME HELPERS ------------------
+# ------------------ Détection du dernier fichier (par nom) ------------------
+# Ex: 2025-8-5_11h41m45s
 FILENAME_TS_PATTERNS = [
     r'(\d{4})-(\d{1,2})-(\d{1,2})_([0-9]{1,2})h([0-9]{1,2})m([0-9]{1,2})s'
 ]
@@ -90,41 +44,30 @@ def ts_from_name(name: str):
             return datetime(y, mo, d, h, mi, s)
     return None
 
-# Fast directory listing (single GET + regex)
 CSV_HREF_RE = re.compile(r'href="([^"]+\.csv)"', re.IGNORECASE)
 
 def list_csvs_fast(root: str, limit: int = 400):
+    """1 GET + regex → liste des CSV (basenames). Rapide."""
     try:
         r = requests.get(root, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
         r.raise_for_status()
         hrefs = CSV_HREF_RE.findall(r.text)
         names = [h.split("/")[-1] for h in hrefs]
         if len(names) > limit:
-            names = names[-limit:]  # keep tail; most HTTP indexes are sorted
+            names = names[-limit:]
         return names
     except Exception:
         return []
 
-def filename_exists_on_any_server(filename: str) -> bool:
-    for root in SERVER_ROOT_URLS:
-        try:
-            url = urljoin(root, filename)
-            h = requests.head(url, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
-            if 200 <= h.status_code < 400:
-                return True
-        except Exception:
-            continue
-    return False
-
 def get_latest_csv_filename_fast():
-    """Auto-pick newest by timestamp parsed from filename. Fall back to lexicographic."""
+    """Retourne le nom du CSV le plus récent selon la date dans le nom (fallback lexicographique)."""
     best_name, best_dt, lex_fallback = None, None, None
     for root in SERVER_ROOT_URLS:
         names = list_csvs_fast(root)
         if not names:
             continue
 
-        # keep lexicographic fallback
+        # fallback lexicographique au cas où
         local_lex = max(names)
         if (lex_fallback is None) or (local_lex > lex_fallback):
             lex_fallback = local_lex
@@ -136,7 +79,6 @@ def get_latest_csv_filename_fast():
             if (best_dt is None) or (dt > best_dt):
                 best_dt, best_name = dt, n
 
-        # stop early once we found a timestamped best on this root
         if best_name is not None:
             break
 
@@ -144,14 +86,11 @@ def get_latest_csv_filename_fast():
         return best_name
     if lex_fallback:
         return lex_fallback
-    raise RuntimeError("No CSV files found on any server.")
+    raise RuntimeError("Aucun fichier CSV trouvé sur les serveurs.")
 
-# ------------------ FETCH (every refresh; tries all IPs) ------------------
+# ------------------ Récupération du CSV ------------------
 def fetch_csv_first_alive(filename):
-    """
-    Try GET on each IP (tight timeouts). On success, return (bytes, content_length, root_url).
-    If all fail, return (None, None, last_err).
-    """
+    """Essaie chaque IP; renvoie (bytes, content_length, root) ou (None, None, err)."""
     last_err = None
     for root in SERVER_ROOT_URLS:
         url = urljoin(root, filename)
@@ -167,61 +106,48 @@ def fetch_csv_first_alive(filename):
             continue
     return None, None, last_err
 
-# ------------------ TIME PARSING ------------------
-def coerce_timestamp(df: pd.DataFrame, test_start_str=None) -> pd.DataFrame:
-    """
-    Convert 'Timestamp' (elapsed seconds since start) into actual datetimes using test_start_str.
-    """
-    if "Timestamp" not in df.columns or not test_start_str:
+# ------------------ Prétraitement minimal ------------------
+def coerce_timestamp(df: pd.DataFrame, start_iso: str) -> pd.DataFrame:
+    """Timestamp (secondes écoulées) → datetimes réels = start + secondes."""
+    if "Timestamp" not in df.columns or not start_iso:
         return df
     try:
-        test_start_dt = datetime.fromisoformat(test_start_str)
+        start_dt = datetime.fromisoformat(start_iso)
     except Exception:
         return df
-
     df = df.copy()
     secs = pd.to_numeric(df["Timestamp"], errors="coerce")
-    df["Timestamp"] = test_start_dt + pd.to_timedelta(secs, unit="s")
+    df["Timestamp"] = start_dt + pd.to_timedelta(secs, unit="s")
     return df
 
-def preprocess(df: pd.DataFrame, test_start_str=None) -> pd.DataFrame:
+def preprocess(df: pd.DataFrame, start_iso: str) -> pd.DataFrame:
     df = df.copy()
     df.columns = df.columns.str.strip()
-
-    # Convert Timestamp from elapsed seconds → real datetimes
-    df = coerce_timestamp(df, test_start_str=test_start_str)
-
-    # Keep only columns we plot
+    # Conversion du temps
+    df = coerce_timestamp(df, start_iso)
+    # Ne garder que l’essentiel
     keep = ["Timestamp"] + [c for c in (TEMP_COLS + HUMI_COLS) if c in df.columns]
     df = df[keep]
 
-    # Window & optional downsample
-    ts_col = "Timestamp"
-    if ts_col in df.columns and pd.api.types.is_datetime64_any_dtype(df[ts_col]):
-        if PLOT_WINDOW:
-            cutoff = df[ts_col].max() - pd.Timedelta(PLOT_WINDOW)
-            df = df[df[ts_col] >= cutoff]
-        if RESAMPLE_RULE:
-            df = (
-                df.set_index(ts_col)
-                  .resample(RESAMPLE_RULE)
-                  .mean(numeric_only=True)
-                  .reset_index()
-            )
+    # Fenêtre d’affichage optionnelle
+    if PLOT_WINDOW and "Timestamp" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Timestamp"]):
+        cutoff = df["Timestamp"].max() - pd.Timedelta(PLOT_WINDOW)
+        df = df[df["Timestamp"] >= cutoff]
+
     return df
 
-# ------------------ FIGURES ------------------
-def build_figs(df, ts_col="Timestamp"):
-    Trace = go.Scattergl  # WebGL for speed
+# ------------------ Figures ------------------
+def build_figs(df: pd.DataFrame):
+    Trace = go.Scattergl  # rapide (WebGL)
     temp_fig, humi_fig = go.Figure(), go.Figure()
 
-    if ts_col in df.columns:
+    if "Timestamp" in df.columns:
         for c in TEMP_COLS:
             if c in df.columns:
-                temp_fig.add_trace(Trace(x=df[ts_col], y=df[c], mode="lines", name=c.replace("_", " ")))
+                temp_fig.add_trace(Trace(x=df["Timestamp"], y=df[c], mode="lines", name=c.replace("_", " ")))
         for c in HUMI_COLS:
             if c in df.columns:
-                humi_fig.add_trace(Trace(x=df[ts_col], y=df[c], mode="lines", name=c.replace("_", " ")))
+                humi_fig.add_trace(Trace(x=df["Timestamp"], y=df[c], mode="lines", name=c.replace("_", " ")))
 
     for f, ylab, title in [
         (temp_fig, "°C", "Température"),
@@ -234,155 +160,76 @@ def build_figs(df, ts_col="Timestamp"):
             hovermode="x unified",
             legend={"orientation": "v", "x": 1.05, "y": 1},
             margin=dict(l=50, r=20, t=50, b=40),
-            uirevision="stay",  # keep zoom on refresh
+            uirevision="stay",
         )
     return temp_fig, humi_fig
 
-# ------------------ DASH APP ------------------
+# ------------------ Dash (minimal) ------------------
 app = Dash(__name__)
-app.title = "Climate Monitor"
-app.config.suppress_callback_exceptions = True
+app.title = "Climate Monitor (simple)"
 
 app.layout = html.Div(
     style={"fontFamily": "system-ui, Arial, sans-serif", "padding": "14px", "maxWidth": "1400px", "margin": "0 auto"},
     children=[
-        # Stores
-        dcc.Store(id="filename-store"),     # chosen CSV filename
-        dcc.Store(id="starttime-store"),    # ISO start datetime parsed from filename
-        dcc.Store(id="data-store"),         # parsed DataFrame JSON
-        dcc.Store(id="meta-store"),         # last content_length + origin
-
-        # URL (optional: allow ?file=NAME.csv later if you want)
-        dcc.Location(id="url"),
-
-        # Filename chooser UI
-        html.Div(
-            style={"display": "flex", "gap": "8px", "alignItems": "center", "margin": "8px 0 12px"},
-            children=[
-                html.Label("Fichier CSV (optionnel) :"),
-                dcc.Input(
-                    id="filename-input",
-                    type="text",
-                    placeholder="Laisser vide pour détecter automatiquement le plus récent…",
-                    debounce=True,
-                    style={"width": "420px"},
-                ),
-                html.Button("Utiliser ce fichier", id="filename-submit"),
-            ],
-        ),
-
-        html.H2("Illuscens — Température et humidité (48 dernières heures)", style={"marginBottom": "6px"}),
-        html.Div(
-            id="status-bar",
-            style={
-                "padding": "10px 12px",
-                "background": "#f4f6f8",
-                "border": "1px solid #e1e5ea",
-                "borderRadius": "10px",
-                "marginBottom": "12px",
-                "fontSize": "14px",
-            },
-        ),
+        dcc.Store(id="filename-store"),
+        dcc.Store(id="starttime-store"),
+        html.H2("Illuscens — Température & Humidité (auto, dernier fichier)"),
+        html.Div(id="status-bar", style={
+            "padding": "10px 12px", "background": "#f4f6f8", "border": "1px solid #e1e5ea",
+            "borderRadius": "10px", "marginBottom": "12px", "fontSize": "14px"
+        }),
         dcc.Graph(id="temp-graph", config={"displaylogo": False}),
         dcc.Graph(id="humi-graph", config={"displaylogo": False}),
         dcc.Interval(id="refresh", interval=REFRESH_MS, n_intervals=0),
     ],
 )
 
-# ---- Choose filename from UI (or auto) ----
+# 1) Détecter le fichier une seule fois au démarrage
 @app.callback(
     Output("filename-store", "data"),
     Output("starttime-store", "data"),
-    Output("status-bar", "children"),
-    Input("filename-submit", "n_clicks"),     # button
-    Input("filename-input", "n_submit"),      # press Enter
-    Input("refresh", "n_intervals"),          # first tick (auto-pick if empty)
-    State("filename-input", "value"),
+    Input("refresh", "n_intervals"),
     State("filename-store", "data"),
     prevent_initial_call=False,
 )
-def choose_filename(n_clicks, n_submit, n_intervals, typed_value, stored_filename):
-    ctx = Dash.callback_context if hasattr(Dash, "callback_context") else None
-    trig = ctx.triggered[0]["prop_id"] if ctx and ctx.triggered else ""
-
-    # If already chosen and this trigger is only the recurring interval, do nothing
-    if stored_filename and trig.endswith("n_intervals"):
-        return no_update, no_update, no_update
-
-    # 1) User typed something: validate it exists
-    if typed_value and typed_value.strip():
-        chosen = os.path.basename(typed_value.strip())
-        if filename_exists_on_any_server(chosen):
-            start_dt = ts_from_name(chosen)
-            ok = f"✅ Fichier choisi: {chosen}"
-            if start_dt is None:
-                ok += " • ⚠️ Impossible d’extraire l’heure de départ du nom; utilisation du temps écoulé brut."
-            return chosen, (start_dt.isoformat() if start_dt else None), ok
-        # Fall back to auto
-        warn = f"⚠️ '{chosen}' introuvable. Détection automatique…"
-    else:
-        warn = ""
-
-    # 2) Auto-detect latest by filename timestamp
+def discover_once(n, stored_filename):
+    if stored_filename:
+        return no_update, no_update
     try:
-        chosen = get_latest_csv_filename_fast()
-        start_dt = ts_from_name(chosen)
-        status = ("🔎 " + warn + " " if warn else "🔎 ") + f"Fichier détecté: {chosen}"
-        return chosen, (start_dt.isoformat() if start_dt else None), status
-    except Exception as e:
-        return no_update, no_update, f"❌ Aucun CSV trouvé: {e}"
+        filename = get_latest_csv_filename_fast()
+        start_dt = ts_from_name(filename)
+        return filename, (start_dt.isoformat() if start_dt else None)
+    except Exception:
+        return no_update, no_update
 
-# ---- Update plots every refresh ----
+# 2) Rafraîchir les graphiques
 @app.callback(
     Output("temp-graph", "figure"),
     Output("humi-graph", "figure"),
     Output("status-bar", "children"),
-    Output("data-store", "data"),
-    Output("meta-store", "data"),
     Input("refresh", "n_intervals"),
     State("filename-store", "data"),
     State("starttime-store", "data"),
-    State("data-store", "data"),
-    State("meta-store", "data"),
     prevent_initial_call=False,
 )
-def update_plots(n_intervals, filename, starttime_str, data_json, meta_json):
+def update_plots(n, filename, start_iso):
     if not filename:
-        return go.Figure(), go.Figure(), "⏳ Recherche du fichier…", data_json, meta_json
+        return go.Figure(), go.Figure(), "⏳ Recherche du dernier fichier…"
 
-    # Try all servers for the file
+    # Télécharger depuis la 1re IP disponible
     content, content_length, origin = fetch_csv_first_alive(filename)
     if content is None:
-        if data_json:
-            df = pd.read_json(io.StringIO(data_json), orient="split")
-            tfig, hfig = build_figs(df)
-            return tfig, hfig, "💾 Données en cache (aucun serveur accessible)", data_json, meta_json
-        return go.Figure(), go.Figure(), "❌ Aucun serveur accessible et aucun cache", None, meta_json
+        return go.Figure(), go.Figure(), "❌ Aucun serveur accessible."
 
-    new_meta = {"content_length": int(content_length), "origin": str(origin)}
-    if meta_json == new_meta and data_json:
-        df = pd.read_json(io.StringIO(data_json), orient="split")
-        tfig, hfig = build_figs(df)
-        status = f"⏩ Inchangé — cache réutilisé • {origin} • {time.strftime('%H:%M:%S')} • {filename}"
-        return tfig, hfig, status, data_json, new_meta
+    # Lire uniquement les colonnes utiles (plus rapide)
+    wanted = {"Timestamp", *TEMP_COLS, *HUMI_COLS}
+    df = pd.read_csv(io.BytesIO(content), usecols=lambda c: c.strip() in wanted)
+    df = preprocess(df, start_iso)
 
-    # Save file, read only needed columns
-    cache_path = os.path.join(LOCAL_CACHE_FOLDER, filename)
-    with open(cache_path, "wb") as f:
-        f.write(content)
-
-    wanted = set(TIMESTAMP_CANDIDATES) | set(TEMP_COLS) | set(HUMI_COLS)
-    df = pd.read_csv(cache_path, usecols=lambda c: c.strip() in wanted)
-
-    # Convert elapsed seconds → real datetimes using start time from filename
-    df = preprocess(df, test_start_str=starttime_str)
-
-    data_json_new = df.to_json(orient="split", date_format="iso")
     tfig, hfig = build_figs(df)
-    status = f"🌐 Live {origin} — rafraîchi {time.strftime('%H:%M:%S')} • {filename}"
-    return tfig, hfig, status, data_json_new, new_meta
+    status = f"🌐 Source: {origin} • Fichier: {filename} • Maj: {time.strftime('%H:%M:%S')}"
+    return tfig, hfig, status
 
 if __name__ == "__main__":
-    # Open browser automatically
     webbrowser.open_new("http://127.0.0.1:8050/")
     app.run(debug=False)

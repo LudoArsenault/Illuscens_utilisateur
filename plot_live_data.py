@@ -1,145 +1,124 @@
-"""
-Résumé
-------
-Télécharge (ou met en cache) un CSV publié par le Raspberry Pi, reconstruit l’axe temps
-d’après l’horodatage dans le nom du fichier + `Timestamp`, puis génère trois visualisations
-Matplotlib :
-1) Températures (cibles et mesures) + puissance du chauffe‑air (sous‑graphes empilés)
-2) Humidité (cible et mesures) + puissance de l’humidificateur (sous‑graphes empilés)
-3) Stratégie de recirculation (ratios, intake) + ammoniac (axe droit)
-
-Utilisation
-----------
-python plot_live_data.py
-
-- Le script tente d’abord de détecter automatiquement l’URL du dernier CSV.
-- En cas d’échec, il vous demande un nom de fichier à récupérer sur le serveur.
-
-Entrées / Colonnes typiques
----------------------------
-- `Timestamp` (secondes écoulées), `Target_T`, `Sheath_T`, `Chamber_top_T`, `Chamber_bottom_T`,
-  `Target_RH`, `Sheath_RH`, `Chamber_top_RH`, `Chamber_bottom_RH`, `Heater_Power`, `Humidifier_Power`,
-  `Total_CFM`, `Target_Ratio`, `Recycling_Ratio`, `Intake_Temp`, `Intake_Hum`, `Ammonia`, etc.
-
-Sorties
--------
-- Fenêtres Matplotlib avec les graphiques décrits (aucun fichier n’est écrit par défaut).
-
-Notes
------
-- L’axe droit d’ammoniac utilise `rolling("1h", center=True)` pour lisser.
-- Pour gagner de la place, la légende des deux axes est fusionnée.
-"""
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
 import datetime
 from utils import *
 
-
-
 def main():
     try:
         csv_url, server_root = get_latest_csv_url()
     except Exception as e:
-        print(f"❌ Error during initial URL detection: {e}")
+        print(f"❌ Erreur lors de la détection automatique de l'URL : {e}")
         server_root = "http://172.20.202.182:8080"
+        print("🔍 Impossible de détecter automatiquement l'URL du fichier.")
+        print("📥 Veuillez sélectionner manuellement un fichier à partir du serveur.")
         csv_url = prompt_for_manual_url(server_root)
         if not csv_url:
-            print("❌ Exiting. No valid file selected.")
+            print("❌ Fin du programme. Aucun fichier valide sélectionné.")
             return
 
     try:
         df, source = fetch_csv(csv_url)
         df.columns = df.columns.str.strip()
 
-        # Convert 'Timestamp' to datetime
-
+        # Convertir 'Timestamp' en datetime
         file_start_time = extract_datetime_from_filename(csv_url)
         df["Time"] = [
-            file_start_time +datetime.timedelta(hours=1) + datetime.timedelta(seconds=ts) for ts in round(df["Timestamp"])    # +1 heure à cause de l'heure de du raspberry pi
-        ]
-        # df['Time'] = pd.to_datetime(df['Time_HMS'], format='%H:%M:%S')
-        # df['Time'] = pd.to_datetime(df['Time'], unit='m')
+            file_start_time + datetime.timedelta(hours=1) + datetime.timedelta(seconds=ts)
+            for ts in round(df["Timestamp"])
+        ]  # +1 heure à cause de l'heure du Raspberry Pi
 
-        # Compute averages
+        # Moyennes
         df['Chamber_T_avg'] = df[['Chamber_top_T', 'Chamber_bottom_T']].mean(axis=1)
         df['Chamber_RH_avg'] = df[['Chamber_top_RH', 'Chamber_bottom_RH']].mean(axis=1)
 
         df = df.set_index(df['Time'])
 
-
-        # --- Plot 1: Temperature and Heater Power (Two stacked subplots) ---
+        # --- Graphe 1 : Températures et puissance de chauffe ---
         fig1, (ax1_temp, ax1_power) = plt.subplots(2, 1, sharex=True, figsize=(10, 6))
 
-        ax1_temp.plot(df['Time'], df['Target_T'], label='Target_T')
-        ax1_temp.plot(df['Time'], df['Sheath_T'], label='Sheath_T')
-        ax1_temp.plot(df['Time'], df['Chamber_T_avg'], label='Chamber_T_avg')
-        ax1_temp.plot(df['Time'], df['Mobile_T'], label='Capteur mobile')
-        ax1_temp.set_ylabel("Temperature (°C)")
-        ax1_temp.set_title("Temperature and Heater Power Over Time")
+        ax1_temp.plot(df['Time'], df['Target_T'], label='Cible')
+        ax1_temp.plot(df['Time'], df['Sheath_T'], label='Gaine')
+        ax1_temp.plot(df['Time'], df['Chamber_T_avg'], label='Pièce')
+        ax1_temp.plot(df['Time'], df['Mobile_T'], label='Larves')
+        ax1_temp.set_ylabel("Température (°C)")
+        ax1_temp.set_title("Températures et puissance de chauffe dans le temps")
         ax1_temp.legend()
 
-        ax1_power.plot(df['Time'], df['Heater_Power'], label='Heater Power', color='tab:red')
-        ax1_power.set_ylabel("Heater Power (%)")
-        ax1_power.set_xlabel("Time")
+        ax1_power.plot(df['Time'], df['Heater_Power'], label='Puissance chauffage', color='tab:red')
+        ax1_power.set_ylabel("Puissance (%)")
+        ax1_power.set_xlabel("Temps")
         ax1_power.legend()
 
         fig1.autofmt_xdate()
 
-        # --- Plot 2: Humidity and Humidifier Power (Two stacked subplots) ---
+        # --- Graphe 2 : Humidité et puissance de l’humidificateur ---
         fig2, (ax2_rh, ax2_power) = plt.subplots(2, 1, sharex=True, figsize=(10, 6))
 
-        ax2_rh.plot(df['Time'], df['Target_RH'], label='Target_RH')
-        ax2_rh.plot(df['Time'], df['Sheath_RH'], label='Sheath_RH')
-        ax2_rh.plot(df['Time'], df['Chamber_RH_avg'], label='Chamber RH Avg')
-        ax2_rh.plot(df['Time'], df['Mobile_RH'], label='Capteur mobile')
-        ax2_rh.set_ylabel("Humidity (%)")
-        ax2_rh.set_title("Humidity and Humidifier Power Over Time")
+        ax2_rh.plot(df['Time'], df['Target_RH'], label='Cible')
+        ax2_rh.plot(df['Time'], df['Sheath_RH'], label='Gaine')
+        ax2_rh.plot(df['Time'], df['Chamber_RH_avg'], label='Pièce')
+        ax2_rh.plot(df['Time'], df['Mobile_RH'], label='Larves')
+        ax2_rh.set_ylabel("Humidité (%)")
+        ax2_rh.set_title("Humidité et puissance de l’humidificateur dans le temps")
         ax2_rh.legend()
 
-        ax2_power.plot(df['Time'], df['Humidifier_Power'], label='Humidifier Power', color='tab:blue')
-        ax2_power.set_ylabel("Power (Volt)")
-        ax2_power.set_xlabel("Time")
+        ax2_power.plot(df['Time'], df['Humidifier_Power'], label='Puissance humidificateur', color='tab:blue')
+        ax2_power.set_ylabel("Puissance (Volt)")
+        ax2_power.set_xlabel("Temps")
         ax2_power.legend()
 
         fig2.autofmt_xdate()
 
-        # --- Plot 3: Recycling Strategy Overview ---
+        # --- Graphe 3 : Stratégie de recirculation ---
         fig3, ax3 = plt.subplots()
         ax3.plot(df['Time'], df['Total_CFM'], label='Total_CFM')
         ax3.plot(df['Time'], df['Target_Ratio'], label='Target_Ratio', linestyle='--')
         ax3.plot(df['Time'], df['Recycling_Ratio'], label='Recycling_Ratio', linestyle='-')
-        ax3.plot(df['Time'], df['Intake_Temp'], label='Intake_Temp', linestyle='-.')
-        ax3.plot(df['Time'], df['Intake_Hum'], label='Intake_RH', linestyle='-.')
-        # ax3.plot(df['Time'], df['Weight'], label='Weight')
-        ax3.set_ylabel("Ratios / Temperature / RH")
-        ax3.set_xlabel("Time")
-        ax3.set_title("Recycling Strategy Over Time")
+        ax3.plot(df['Time'], df['Intake_Temp'], label='Température Entrée', linestyle='-.')
+        ax3.plot(df['Time'], df['Intake_Hum'], label='Humidité Entrée', linestyle='-.')
+
+        ax3.set_ylabel("Ratios / Température / Humidité")
+        ax3.set_xlabel("Temps")
+        ax3.set_title("Stratégie de recirculation dans le temps")
         ax3.legend()
-
-        # --- Secondary axis (right) ---
-        ax3b = ax3.twinx()
-        ax3b.plot(df['Time'], df['Ammonia'].rolling("1h", center=True).mean(), label='Ammonia')
-        ax3b.set_ylabel("Ammonia", labelpad=15)  # 15–20 is a good starting range
-
-        # --- Combine legends from both axes ---
-        lines1, labels1 = ax3.get_legend_handles_labels()
-        lines2, labels2 = ax3b.get_legend_handles_labels()
-        ax3.legend(lines1 + lines2, labels1 + labels2, loc='best')
-        fig3.subplots_adjust(right=0.85)  # frees up space for the right y-axis label
 
         fig3.autofmt_xdate()
 
-        # Show all plots
+        # --- Graphe 4 : Ammoniac et Poids ---
+        fig4, ax4 = plt.subplots()
+
+        # Ammoniac avec lissage sur 1h
+        if 'Ammonia' in df.columns:
+            ammonia_smoothed = df['Ammonia'].rolling("1h", center=True).mean()
+            ax4.plot(df['Time'], ammonia_smoothed, label="Ammoniac (moy. 1h)", color='tab:purple')
+            ax4.set_ylabel("Ammoniac (ppm)")
+            ax4.set_xlabel("Temps")
+            ax4.set_title("Évolution de l'ammoniac et du poids")
+        else:
+            print("ℹ️ Colonne 'Ammonia' absente du fichier.")
+
+        # Axe secondaire pour le poids
+        if 'Weight' in df.columns:
+            ax4b = ax4.twinx()
+            poids = df['Weight'].rolling("2h", center=True).mean()
+            ax4b.plot(df['Time'], poids , label="Poids", color='tab:gray', linestyle='--')
+            ax4b.set_ylabel("Poids (kg)")
+        else:
+            print("ℹ️ Colonne 'Weight' absente du fichier.")
+
+        # Fusion des légendes
+        lines1, labels1 = ax4.get_legend_handles_labels()
+        lines2, labels2 = (ax4b.get_legend_handles_labels() if 'Weight' in df.columns else ([], []))
+        ax4.legend(lines1 + lines2, labels1 + labels2, loc='best')
+
+        fig4.autofmt_xdate()
+
+        # Afficher tous les graphiques
         plt.show()
 
     except Exception as e:
-        print(f"❌ {e}")
-
-
+        print(f"❌ Une erreur s’est produite : {e}")
 
 if __name__ == "__main__":
     main()
-
