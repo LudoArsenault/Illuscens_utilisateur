@@ -72,9 +72,8 @@ def main():
 
         # --- Graphe 3 : Stratégie de recirculation ---
         fig3, ax3 = plt.subplots()
-        ax3.plot(df['Time'], df['Total_CFM'], label='Total_CFM')
-        ax3.plot(df['Time'], df['Target_Ratio'], label='Target_Ratio', linestyle='--')
-        ax3.plot(df['Time'], df['Recycling_Ratio'], label='Recycling_Ratio', linestyle='-')
+        ax3.plot(df['Time'], df['Total_CFM'], label='Total CFM')
+        ax3.plot(df['Time'], df['Recycling_Ratio'], label='Recirculation', linestyle='-')
         ax3.plot(df['Time'], df['Intake_Temp'], label='Température Entrée', linestyle='-.')
         ax3.plot(df['Time'], df['Intake_Hum'], label='Humidité Entrée', linestyle='-.')
 
