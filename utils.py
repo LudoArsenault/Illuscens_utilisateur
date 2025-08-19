@@ -37,10 +37,10 @@ def extract_datetime_from_filename(filename):
 
 
 SERVER_ROOT_URLS = [
+    "http://raspberrypi.local:8080",
     "http://172.20.202.52:8080",
     "http://172.20.206.103:8080",
     "http://172.20.202.182:8080"
-
 ]
 
 LOCAL_CACHE_FOLDER = "./cached_data"

@@ -24,6 +24,7 @@ import webbrowser
 
 # List of possible server IPs
 IP_ADDRESSES = [
+    "http://raspberrypi.local:8080",
     "http://172.20.202.52:8080",
     "http://172.20.206.103:8080",
     "http://172.20.202.182:8080"

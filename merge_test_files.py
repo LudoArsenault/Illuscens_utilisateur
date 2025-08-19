@@ -39,12 +39,6 @@ Notes
 from datetime import timedelta
 from utils import *
 
-# --- CONFIGURATION ---
-LOCAL_FOLDER = r"C:\Users\ludovic.arsenault-levesque\OneDrive - Entosystem\Documents\Illuscens\données/cached_data/"
-FILENAME_PREFIX = "test_larves_7"
-OUTPUT_FILENAME = "merged_test_larves_7.csv"
-
-
 
 
 # --- Main script ---
