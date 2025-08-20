@@ -1,8 +1,8 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import re
 import datetime
+import matplotlib.pyplot as plt
+
 from utils import *
+
 
 def main():
     try:
