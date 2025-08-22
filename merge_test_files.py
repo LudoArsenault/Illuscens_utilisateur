@@ -52,18 +52,23 @@ def main():
             print("❌ Le dossier n'existe pas. Veuillez réessayer.")
             continue
 
-        filename_prefix = input("Entrez le nom du test : ").strip()
+        filename_prefix = input("Entrez le nom du test (sans la date) : ").strip()
 
         all_files = [
             f for f in os.listdir(path)
-            if f.startswith(filename_prefix) and f.endswith(".csv")
+            if f.startswith(filename_prefix)
+               and f.endswith(".csv")
+               and extract_datetime_from_filename(f) is not None
         ]
+
+        # Trier par date
+        all_files.sort(key=lambda f: extract_datetime_from_filename(f))
+
         if not all_files:
             print("No matching files found.")
             return
         else:
             break
-
 
     # Sort by datetime embedded in filename
     all_files.sort(key=lambda f: extract_datetime_from_filename(f))
